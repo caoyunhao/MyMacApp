@@ -9,10 +9,15 @@
 import Cocoa
 
 class ViewController: NSViewController {
+    
+//    @IBOutlet var tableView: NSTableView?
+    
+    var items: [Music] = []
 
     override func viewDidLoad() {
         super.viewDidLoad()
-
+//        tableView?.delegate = self
+//        tableView?.dataSource = self
         // Do any additional setup after loading the view.
     }
 
@@ -24,4 +29,6 @@ class ViewController: NSViewController {
 
 
 }
+
+//
 
