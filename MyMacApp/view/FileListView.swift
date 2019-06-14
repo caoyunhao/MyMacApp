@@ -10,43 +10,47 @@ import Cocoa
 
 struct FileItem {
     var path: String
-    var size: String = "null"
+    var size: String
     var name: String
-    var prop: [FileAttributeKey: Any]
+    var attributes: [FileAttributeKey: Any]
     
     init?(fileId: String) {
-        guard let path = URL(fileURLWithPath: fileId).standardized.absoluteString.removingPercentEncoding else {
+        guard let path = URL(fileURLWithPath: fileId).standardized.absoluteString.removingPercentEncoding?.replacingOccurrences(of: "file://", with: "") else {
+            DLog("invalid fileId \(fileId) for URL")
             return nil
         }
+        
         self.init(path: path)
     }
     
     init?(path: String) {
-        guard let prop = try? FileManager.default.attributesOfFileSystem(forPath: path) else {
-            DLog("invalid path \(path)")
+        guard let prop = try? FileManager.default.attributesOfItem(atPath: path) else {
+            DLog("invalid path \(path) for file system")
             return nil
         }
         
         self.name = NSString(string: path).lastPathComponent
-        self.size = "\(String(describing: prop[FileAttributeKey.size]))bytes"
+        self.size = "\(prop[FileAttributeKey.size] ?? "NAN") bytes"
         self.path = path
-        self.prop = prop
+        self.attributes = prop
     }
 }
 
-class MusicListView: NSTableView {
-    
+class FileListView: NSTableView {
+
     fileprivate var fileItems: [FileItem] = [
         
     ]
+    
+    // var handleSelectedFileItem: Selector?
+    var handleSelectedFileItem: ((FileItem) -> Void)?
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         self.registerForDraggedTypes([.fileURL, ])
-        delegate = self
-        dataSource = self
-    
-        // Drawing code here.
+        self.delegate = self
+        self.dataSource = self
+        self.doubleAction = #selector(self.doDoubleAction)
     }
     
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
@@ -65,15 +69,22 @@ class MusicListView: NSTableView {
         var has = true
         sender.draggingPasteboard.pasteboardItems?.forEach({ (item) in
             if let fileId = item.propertyList(forType: .fileURL) as? String {
-                let url = URL(fileURLWithPath: fileId as! String).standardized
-                print(url)
-                if let attributes = try? FileManager.default.attributesOfItem(atPath: url.absoluteString) {
-                    print("File size: \(attributes[FileAttributeKey.size])")
-                    print("File creation date: \(attributes[FileAttributeKey.creationDate])")
-                    print("File type: \(attributes[FileAttributeKey.type])")
+                let url = URL(fileURLWithPath: fileId ).standardized
+                
+                let path = url.absoluteString.removingPercentEncoding!.replacingOccurrences(of: "file://", with: "")
+                DLog("path: \(path)")
+                
+                let attributesOpt = try? FileManager.default.attributesOfItem(atPath: path)
+                
+//                DLog(attributesOpt)
+                
+                if let attributes = attributesOpt{
+                    DLog("File size: \(attributes[FileAttributeKey.size])")
+                    DLog("File creation date: \(attributes[FileAttributeKey.creationDate])")
+                    DLog("File type: \(attributes[FileAttributeKey.type])")
                 }
 
-                print(extractMP3Meta(url: url))
+//                DLog(extractMP3Meta(url: url))
                 
                 if let i = FileItem(fileId: fileId) {
                     fileItems.append(i)
@@ -88,9 +99,18 @@ class MusicListView: NSTableView {
         
         return true
     }
+    
+    @objc
+    func doDoubleAction() {
+        DLog("do double action")
+        self.handleSelectedFileItem?(fileItems[self.selectedRow])
+//        if let s = self.handleSelectedFileItem {
+//            self.perform(s)
+//        }
+    }
 }
 
-extension MusicListView: NSTableViewDelegate {
+extension FileListView: NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         
         var cellIdentifier = "1111"
@@ -128,7 +148,7 @@ extension MusicListView: NSTableViewDelegate {
 }
 
 
-extension MusicListView: NSTableViewDataSource {
+extension FileListView: NSTableViewDataSource {
     func numberOfRows(in tableView: NSTableView) -> Int {
         DLog("numberOfRows is \(fileItems.count)")
         return fileItems.count

@@ -10,14 +10,15 @@ import Cocoa
 
 class ViewController: NSViewController {
     
-//    @IBOutlet var tableView: NSTableView?
-    
-    var items: [Music] = []
+    @IBOutlet weak var fileListView: FileListView!
+    @IBOutlet weak var musicDetailView: MusicDetailView!
 
     override func viewDidLoad() {
         super.viewDidLoad()
-//        tableView?.delegate = self
-//        tableView?.dataSource = self
+        
+        fileListView.handleSelectedFileItem = { item in
+            self.handle(fileItem: item)
+        }
         // Do any additional setup after loading the view.
     }
 
@@ -25,6 +26,13 @@ class ViewController: NSViewController {
         didSet {
         // Update the view, if already loaded.
         }
+    }
+    
+    func handle(fileItem item: FileItem ) {
+        DLog("handleSelectedFileItem")
+        let asset = MusicAsset(path: item.path, data: nil)
+//        musicDetailView.setAsset(musicAsset: asset)
+        musicDetailView.musicAsset = asset
     }
 
 

@@ -22,4 +22,41 @@ class MusicDetailView: NSView {
         // Drawing code here.
     }
     
+    var musicAsset: MusicAsset {
+        set {
+            let musicAsset = newValue
+            filePathTextField.stringValue = musicAsset.path
+            
+            let meta = extractMP3Meta(path: musicAsset.path)
+            
+            musicTitleTextField.stringValue = meta?.title ?? ""
+            musicAuthorTextField.stringValue = meta?.authorString ?? ""
+            musicAlbumTextField.stringValue = meta?.ablum ?? ""
+            musicLyricistTextView.string = meta?.lyricist ?? ""
+            
+            if let data = meta?.imageData {
+                musicAlbumImageView.image = NSImage(data: data)
+            } else {
+                musicAlbumImageView.image = nil
+            }
+        }
+        get {
+            return MusicAsset(path: filePathTextField.stringValue, data: nil)
+        }
+    }
+    
+    var musicMeta: MusicMeta {
+        
+        var meta = MusicMeta();
+        meta.title = musicTitleTextField.stringValue
+        meta.authorString = musicAuthorTextField.stringValue
+        meta.ablum = musicAlbumTextField.stringValue
+        meta.lyricist = musicLyricistTextView.string
+        
+        return meta
+    }
+    
+    func save() {
+        
+    }
 }
