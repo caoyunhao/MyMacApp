@@ -932,6 +932,9 @@
                                                             <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
                                                             <font key="font" metaFont="system"/>
                                                         </buttonCell>
+                                                        <connections>
+                                                            <action selector="snapshot:" target="aG3-ZU-f82" id="Tha-mQ-j5g"/>
+                                                        </connections>
                                                     </button>
                                                     <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="gZZ-ox-phc">
                                                         <rect key="frame" x="44" y="8" width="75" height="32"/>

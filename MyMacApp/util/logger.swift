@@ -10,6 +10,7 @@ import Foundation
 
 func DLog<T> (_ message : T, fileName : String = #file, method : String = #function, line : Int = #line)->(){
     #if DEBUG
-    print("[DEBUG]\(NSString(string: fileName).lastPathComponent):\(method):\(line): \(message)")
+    NSLog("[DEBUG]\(NSString(string: fileName).lastPathComponent):\(method):\(line): \(message)")
+//    print()
     #endif
 }
