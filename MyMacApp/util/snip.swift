@@ -44,6 +44,8 @@ class SnipManager {
             
             let controller = SnipWindowController()
             controller.window = window
+//            DLog("screen.backingScaleFactor \(screen.backingScaleFactor)")
+            controller.screenScale = screen.backingScaleFactor
             controller.startCaptureWithScreen(screen: screen)
             self.captureState = .hilight
             controllers.append(controller)
@@ -78,7 +80,7 @@ fileprivate protocol MouseEventProtocol {
 
 fileprivate class SnipWindowController: NSWindowController, NSWindowDelegate, MouseEventProtocol {
     fileprivate var snipView: SnipView!
-    
+    fileprivate var screenScale: CGFloat!
     private let NOTIFICATION_NAME = NSNotification.Name("kNotifyMouseLocationChange")
     private var originImage: NSImage!
     private var darkImage: NSImage!
@@ -117,6 +119,7 @@ fileprivate class SnipWindowController: NSWindowController, NSWindowDelegate, Mo
     
     private func doSnapshot(screen: NSScreen) {
         let cgImage = shot(ofScreen: screen)
+//        DLog("cgImage size \(cgImage?.width) * \(cgImage?.height)")
         self.originImage = NSImage(cgImage: cgImage!, size: screen.frame.size)
         self.darkImage = NSImage(cgImage: cgImage!, size: screen.frame.size)
         self.darkImage.lockFocus()
@@ -249,30 +252,76 @@ fileprivate class SnipWindowController: NSWindowController, NSWindowDelegate, Mo
     }
     
     private func ok() {
-        self.originImage.lockFocus()
-        var rect = NSIntersectionRect(self.captureWindowRect, self.window!.frame)
-        rect = self.window!.convertFromScreen(rect)
-        rect = NSIntegralRect(rect)
-//        let bitmap = NSBitmapImageRep()
-//        DLog("new NSImageView")
-//        let imageView = NSImageView(image: self.originImage)
-//        DLog("write to bitmap")
-//        imageView.cacheDisplay(in: rect, to: bitmap)
-        let bitmap = NSBitmapImageRep(focusedViewRect: rect)!
-        self.originImage.unlockFocus()
+        let rect = NSIntersectionRect(self.captureWindowRect, self.window!.frame)
+        let rect1 = self.window!.convertFromScreen(rect)
+        let rect2 = NSIntegralRect(rect1)
+
+        
+        guard let bitmap = snipView.bitmapImageRepForCachingDisplay(in: rect2) else {
+            DLog("bitmap fail")
+            return
+        }
+        bitmap.pixelsHigh = Int(bitmap.size.height * self.screenScale)
+        bitmap.pixelsWide = Int(bitmap.size.width * self.screenScale)
+        snipView.cacheDisplay(in: rect2, to: bitmap)
+        
+        // DLog("bitmap \(bitmap.description) rect2 \(rect2) captureWindowRect \(self.captureWindowRect) screenScale \(self.screenScale)")
+    
         let prop: [NSBitmapImageRep.PropertyKey: Any] = [
             .compressionFactor: 1.0
         ]
-        DLog("fet from bitmap")
-        if let data = bitmap.representation(using: .jpeg, properties: prop),
+
+        if let data = bitmap.representation(using: .png, properties: prop),
             let image = NSImage(data: data) {
+            
             let pb = NSPasteboard.general
             pb.clearContents()
             pb.writeObjects([image, ])
-            DLog("copied image")
+            
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyyMMdd-HHmmss"
+            let dataString = formatter.string(from: Date())
+            
+            let name = "snapshot-\(dataString).png"
+            if !FileManager.default.fileExists(atPath: "/Users/caoyunhao/Downloads/Snapshot") {
+                try! FileManager.default.createDirectory(atPath: "/Users/caoyunhao/Downloads/Snapshot", withIntermediateDirectories: true, attributes: nil)
+            }
+
+            try! data.write(to: URL(fileURLWithPath: "/Users/caoyunhao/Downloads/Snapshot/\(name)"))
         }
         SnipManager.shared.endCapture()
         self.window?.orderOut(nil)
+        
+        
+        
+//        DLog("write to bitmap")
+        // imageView.cacheDisplay(in: rect, to: bitmap)
+//        let bitmap = NSBitmapImageRep(focusedViewRect: rect2)!
+
+        // DLog("rect \(rect), rect1 \(rect1), rect2 \(rect2), captureWindowRect \(self.captureWindowRect), window frame \(self.window!.frame)")
+//        if let data = bitmap.representation(using: .png, properties: prop),
+//            let image = NSImage(data: data) {
+//            var tmppath = NSTemporaryDirectory()
+//            let name = "\(NSDate.timeIntervalSinceReferenceDate).png"
+//            tmppath.append(name)
+//            try! data.write(to: URL(fileURLWithPath: tmppath))
+//
+//            let pathToSave = "/Users/caoyunhao/Downloads/\(NSDate.timeIntervalSinceReferenceDate).png"
+//
+//            do {
+//                try FileManager.default.copyItem(atPath: tmppath, toPath: pathToSave)
+//                DLog("Success to copy file.")
+//            } catch let e {
+//                DLog("Failed. \(e)")
+//            }
+//
+//            let pb = NSPasteboard.general
+//            pb.clearContents()
+////            pb.writeObjects([image, ])
+//            pb.writeFileContents(pathToSave)
+////            DLog("copied image \(image.size)")
+//        }
+        
     }
     
     fileprivate func shutdown() {
