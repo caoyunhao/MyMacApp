@@ -90,6 +90,9 @@ fileprivate class SnipWindowController: NSWindowController, NSWindowDelegate, Mo
     private var startPoint: NSPoint!
     private var endPoint: NSPoint!
     
+    private var drawStartPoint: NSPoint!
+    private var drawEndPoint: NSPoint!
+    
     fileprivate var mouseGlobalHandler: Any?
 
     deinit {
@@ -204,17 +207,23 @@ fileprivate class SnipWindowController: NSWindowController, NSWindowDelegate, Mo
     }
     
     internal func mouseUp(event: NSEvent) {
-//        DLog("mouseUp")
+        DLog("mouseUp  \(SnipManager.shared.captureState)")
         if SnipManager.shared.captureState == .mouseFirstDown ||
             SnipManager.shared.captureState == .selecting {
             SnipManager.shared.captureState = .edit
             self.snipView.setupTool()
             self.setupToolClick()
+            self.snipView.setupDrawPath()
+        } else {
+            if SnipManager.shared.captureState == .edit {
+                self.drawEndPoint = NSEvent.mouseLocation
+                self.snipView.pathView.rectArray.append(DrawPathInfo(startPoint: self.drawStartPoint, endPoint: self.drawEndPoint))
+            }
         }
     }
     
     internal func mouseDown(event: NSEvent) {
-//        DLog("mouseDown")
+        DLog("mouseDown \(SnipManager.shared.captureState)")
         let mouseLocation = NSEvent.mouseLocation
         if event.clickCount == 2 {
             if NSPointInRect(mouseLocation, self.captureWindowRect) {
@@ -225,14 +234,18 @@ fileprivate class SnipWindowController: NSWindowController, NSWindowDelegate, Mo
             }
             return
         }
-        self.startPoint = mouseLocation
+        
         if SnipManager.shared.captureState == .hilight {
+            self.startPoint = mouseLocation
             SnipManager.shared.captureState = .mouseFirstDown
+        } else if SnipManager.shared.captureState == .edit {
+            self.snipView.toolContainer.isHidden = true
+            self.drawStartPoint = mouseLocation
         }
     }
     
     internal func mouseDragged(event: NSEvent) {
-//        DLog("mouseDragged")
+        DLog("mouseDragged \(SnipManager.shared.captureState)")
         if SnipManager.shared.captureState == .mouseFirstDown {
             SnipManager.shared.captureState = .selecting
         }
@@ -241,11 +254,15 @@ fileprivate class SnipWindowController: NSWindowController, NSWindowDelegate, Mo
             self.captureWindowRect = NSUnionRect(NSRect(x: self.startPoint.x, y: self.startPoint.y, width: 1, height: 1), NSRect(x: self.endPoint.x, y: self.endPoint.y, width: 1, height: 1))
             self.captureWindowRect = NSIntersectionRect(self.captureWindowRect, self.window!.frame);
             self.redrawView(nsImage: self.originImage)
+        } else if SnipManager.shared.captureState == .edit {
+            self.drawEndPoint = NSEvent.mouseLocation
+            self.snipView.pathView.currentInfo = DrawPathInfo(startPoint: self.drawStartPoint, endPoint: self.drawEndPoint)
+            self.snipView.pathView.needsDisplay = true
         }
     }
     
     internal func mouseMoved(event: NSEvent) {
-//        DLog("mouseMoved")
+        DLog("mouseMoved \(SnipManager.shared.captureState)")
         if SnipManager.shared.captureState == .hilight {
             self.captureAppScreen()
         }
@@ -264,8 +281,6 @@ fileprivate class SnipWindowController: NSWindowController, NSWindowDelegate, Mo
         bitmap.pixelsHigh = Int(bitmap.size.height * self.screenScale)
         bitmap.pixelsWide = Int(bitmap.size.width * self.screenScale)
         snipView.cacheDisplay(in: rect2, to: bitmap)
-        
-        // DLog("bitmap \(bitmap.description) rect2 \(rect2) captureWindowRect \(self.captureWindowRect) screenScale \(self.screenScale)")
     
         let prop: [NSBitmapImageRep.PropertyKey: Any] = [
             .compressionFactor: 1.0
@@ -291,37 +306,6 @@ fileprivate class SnipWindowController: NSWindowController, NSWindowDelegate, Mo
         }
         SnipManager.shared.endCapture()
         self.window?.orderOut(nil)
-        
-        
-        
-//        DLog("write to bitmap")
-        // imageView.cacheDisplay(in: rect, to: bitmap)
-//        let bitmap = NSBitmapImageRep(focusedViewRect: rect2)!
-
-        // DLog("rect \(rect), rect1 \(rect1), rect2 \(rect2), captureWindowRect \(self.captureWindowRect), window frame \(self.window!.frame)")
-//        if let data = bitmap.representation(using: .png, properties: prop),
-//            let image = NSImage(data: data) {
-//            var tmppath = NSTemporaryDirectory()
-//            let name = "\(NSDate.timeIntervalSinceReferenceDate).png"
-//            tmppath.append(name)
-//            try! data.write(to: URL(fileURLWithPath: tmppath))
-//
-//            let pathToSave = "/Users/caoyunhao/Downloads/\(NSDate.timeIntervalSinceReferenceDate).png"
-//
-//            do {
-//                try FileManager.default.copyItem(atPath: tmppath, toPath: pathToSave)
-//                DLog("Success to copy file.")
-//            } catch let e {
-//                DLog("Failed. \(e)")
-//            }
-//
-//            let pb = NSPasteboard.general
-//            pb.clearContents()
-////            pb.writeObjects([image, ])
-//            pb.writeFileContents(pathToSave)
-////            DLog("copied image \(image.size)")
-//        }
-        
     }
     
     fileprivate func shutdown() {
@@ -397,7 +381,7 @@ fileprivate class SnipView: NSView {
     fileprivate var drawingRect: NSRect!
     
     private var trackingArea: NSTrackingArea!
-    private var pathView: DrawPathView!
+    fileprivate var pathView: DrawPathView!
     fileprivate var toolContainer: ToolContainer!
     
     
@@ -465,9 +449,10 @@ fileprivate class SnipView: NSView {
     }
     
     func setupDrawPath() {
-        guard pathView != nil else {
+        guard pathView == nil else {
             return
         }
+        DLog("setup draw path")
         self.pathView = DrawPathView()
         self.addSubview(self.pathView)
         let rect = NSIntersectionRect(self.drawingRect, self.bounds)
@@ -481,7 +466,61 @@ fileprivate class SnipView: NSView {
 }
 
 fileprivate class DrawPathView: NSView {
+    fileprivate var rectArray: [DrawPathInfo] = []
+    fileprivate var currentInfo: DrawPathInfo?
     
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        if SnipManager.shared.captureState == .edit {
+            self.drawCommentInRect(rect: self.bounds)
+            if let currentInfo = self.currentInfo {
+                self.drawShape(info: currentInfo, inBackgroud: false)
+            }
+        }
+    }
+    
+    func drawCommentInRect(rect: NSRect) {
+        let path = NSBezierPath(rect: rect)
+        path.addClip()
+        NSColor.red.set()
+        for info in self.rectArray {
+            self.drawShape(info: info, inBackgroud: false)
+        }
+    }
+    
+    func drawShape(info: DrawPathInfo, inBackgroud: Bool) {
+        var rect = NSRect(x: info.startPoint.x, y: info.startPoint.y, width: info.endPoint.x - info.startPoint.x, height: info.endPoint.y - info.startPoint.y)
+        if inBackgroud {
+            rect = self.window!.convertFromScreen(rect)
+        } else {
+            var rect1 = self.window!.convertFromScreen(rect)
+            rect1.origin.x -= self.frame.origin.x
+            rect1.origin.y -= self.frame.origin.y
+            rect = rect1
+        }
+        let path = NSBezierPath()
+        path.lineWidth = 4
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        
+        rect = rect.uniform
+        if rect.size.width * rect.size.width < 1e-2 {
+            return
+        }
+        path.appendRect(rect)
+        path.stroke()
+    }
+}
+
+fileprivate class DrawPathInfo: NSObject {
+    fileprivate var startPoint: NSPoint
+    fileprivate var endPoint: NSPoint
+    fileprivate var points: [NSPoint] = []
+    
+    init(startPoint: NSPoint, endPoint: NSPoint) {
+        self.startPoint = startPoint
+        self.endPoint = endPoint
+    }
 }
 
 fileprivate let TOOL_BUTTON_WIDTH = 75
@@ -562,5 +601,20 @@ fileprivate extension CGRect {
     
     var area: CGFloat {
         return self.width * self.height
+    }
+    var uniform: CGRect {
+        var x = origin.x;
+        var y = origin.y;
+        var w = size.width;
+        var h = size.height;
+        if (w < 0) {
+            x += w;
+            w = -w;
+        }
+        if (h < 0) {
+            y += h;
+            h = -h;
+        }
+        return NSRect(x: x, y: y, width: w, height: h);
     }
 }
