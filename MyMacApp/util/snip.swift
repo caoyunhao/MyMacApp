@@ -14,6 +14,7 @@ enum CaptureState {
     case mouseFirstDown
     case appSelected
     case selecting
+    case waiting
     case edit
     case done
 }
@@ -27,12 +28,21 @@ class SnipManager {
     fileprivate var lastRect: NSRect!
     fileprivate var captureState: CaptureState = .idle
     
+    private var hotKey: HotKey!
+    
+    init() {
+        hotKey = HotKey(key: .escape, modifiers: [])
+        hotKey.keyDownHandler = {
+            self.endCapture()
+        }
+    }
+    
     func startCapture() {
-        if (isWorking) {
+        if (self.isWorking) {
             return
         }
-        isWorking = true
-        
+        self.isWorking = true
+        self.hotKey.isPaused = false
         self.windowInfoes = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [NSDictionary]
         controllers = []
         DLog("screen count \(NSScreen.screens.count)")
@@ -57,6 +67,8 @@ class SnipManager {
             return
         }
         
+        self.hotKey.isPaused = true
+        
         self.isWorking = false
         
         for controller in self.controllers {
@@ -80,6 +92,8 @@ fileprivate protocol MouseEventProtocol {
 
 fileprivate class SnipWindowController: NSWindowController, NSWindowDelegate, MouseEventProtocol {
     fileprivate var snipView: SnipView!
+    fileprivate var snipDrawView: SnipDrawView!
+    
     fileprivate var screenScale: CGFloat!
     private let NOTIFICATION_NAME = NSNotification.Name("kNotifyMouseLocationChange")
     private var originImage: NSImage!
@@ -101,12 +115,18 @@ fileprivate class SnipWindowController: NSWindowController, NSWindowDelegate, Mo
     
     func startCaptureWithScreen(screen: NSScreen) {
         self.doSnapshot(screen: screen)
+        // backgroud image
         self.window!.backgroundColor = NSColor(patternImage: self.darkImage)
         var screenFrame = screen.frame
         screenFrame.size.width /= 1;
         screenFrame.size.height /= 1;
         self.window!.setFrame(screenFrame, display: true, animate: false)
         self.snipView = (self.window!.contentView as! SnipView)
+        self.snipDrawView = SnipDrawView(frame: self.snipView.frame)
+        self.snipDrawView.snipView = self.snipView
+        self.snipView.snipDrawView = self.snipDrawView
+        self.snipView.addSubview(self.snipDrawView)
+        
         (self.window as! SnipWindow).mouseDelegate = self
         self.snipView.setupTrackingArea(rect: self.window!.screen!.frame)
         
@@ -189,6 +209,7 @@ fileprivate class SnipWindowController: NSWindowController, NSWindowDelegate, Mo
 //            DLog("convertFromScreen \(rect)")
             self.snipView.drawingRect = rect
             self.snipView.needsDisplay = true
+            self.snipDrawView.needsDisplay = true
             self.lastRect = self.captureWindowRect
         }
     }
@@ -209,15 +230,17 @@ fileprivate class SnipWindowController: NSWindowController, NSWindowDelegate, Mo
     internal func mouseUp(event: NSEvent) {
         DLog("mouseUp  \(SnipManager.shared.captureState)")
         if SnipManager.shared.captureState == .mouseFirstDown ||
-            SnipManager.shared.captureState == .selecting {
+            SnipManager.shared.captureState == .selecting ||
+            SnipManager.shared.captureState == .waiting {
             SnipManager.shared.captureState = .edit
+            self.snipView.needsDisplay = true
             self.snipView.setupTool()
             self.setupToolClick()
-            self.snipView.setupDrawPath()
+            self.snipDrawView.setupDrawPath()
         } else {
             if SnipManager.shared.captureState == .edit {
                 self.drawEndPoint = NSEvent.mouseLocation
-                self.snipView.pathView.rectArray.append(DrawPathInfo(startPoint: self.drawStartPoint, endPoint: self.drawEndPoint))
+                self.snipDrawView.pathView.rectArray.append(DrawPathInfo(startPoint: self.drawStartPoint, endPoint: self.drawEndPoint))
             }
         }
     }
@@ -241,6 +264,8 @@ fileprivate class SnipWindowController: NSWindowController, NSWindowDelegate, Mo
         } else if SnipManager.shared.captureState == .edit {
             self.snipView.toolContainer.isHidden = true
             self.drawStartPoint = mouseLocation
+        } else if SnipManager.shared.captureState == .waiting {
+            
         }
     }
     
@@ -256,13 +281,14 @@ fileprivate class SnipWindowController: NSWindowController, NSWindowDelegate, Mo
             self.redrawView(nsImage: self.originImage)
         } else if SnipManager.shared.captureState == .edit {
             self.drawEndPoint = NSEvent.mouseLocation
-            self.snipView.pathView.currentInfo = DrawPathInfo(startPoint: self.drawStartPoint, endPoint: self.drawEndPoint)
-            self.snipView.pathView.needsDisplay = true
+            self.snipDrawView.pathView.currentInfo = DrawPathInfo(startPoint: self.drawStartPoint, endPoint: self.drawEndPoint)
+            self.snipDrawView.pathView.needsDisplay = true
+        } else if SnipManager.shared.captureState == .waiting {
         }
     }
     
     internal func mouseMoved(event: NSEvent) {
-        DLog("mouseMoved \(SnipManager.shared.captureState)")
+//        DLog("mouseMoved \(SnipManager.shared.captureState)")
         if SnipManager.shared.captureState == .hilight {
             self.captureAppScreen()
         }
@@ -272,15 +298,14 @@ fileprivate class SnipWindowController: NSWindowController, NSWindowDelegate, Mo
         let rect = NSIntersectionRect(self.captureWindowRect, self.window!.frame)
         let rect1 = self.window!.convertFromScreen(rect)
         let rect2 = NSIntegralRect(rect1)
-
         
-        guard let bitmap = snipView.bitmapImageRepForCachingDisplay(in: rect2) else {
+        guard let bitmap = snipDrawView.bitmapImageRepForCachingDisplay(in: rect2) else {
             DLog("bitmap fail")
             return
         }
         bitmap.pixelsHigh = Int(bitmap.size.height * self.screenScale)
         bitmap.pixelsWide = Int(bitmap.size.width * self.screenScale)
-        snipView.cacheDisplay(in: rect2, to: bitmap)
+        snipDrawView.cacheDisplay(in: rect2, to: bitmap)
     
         let prop: [NSBitmapImageRep.PropertyKey: Any] = [
             .compressionFactor: 1.0
@@ -317,8 +342,6 @@ fileprivate class SnipWindowController: NSWindowController, NSWindowDelegate, Mo
         }
     }
 }
-
-
 
 fileprivate class SnipWindow: NSPanel {
     
@@ -377,30 +400,29 @@ fileprivate class SnipWindow: NSPanel {
 
 
 fileprivate class SnipView: NSView {
+    fileprivate var snipDrawView: SnipDrawView!
+    fileprivate var toolContainer: ToolContainer!
+    
     fileprivate var image: NSImage!
     fileprivate var drawingRect: NSRect!
     
     private var trackingArea: NSTrackingArea!
-    fileprivate var pathView: DrawPathView!
-    fileprivate var toolContainer: ToolContainer!
-    
     
     override func draw(_ dirtyRect: NSRect) {
 //        NSDisableScreenUpdates()
+        DLog("draw \(dirtyRect) frame \(frame) \(SnipManager.shared.captureState)")
         super.draw(dirtyRect)
         
         if let image = self.image {
             let imageRect = NSIntersectionRect(self.drawingRect, self.bounds)
-            image.draw(in: imageRect, from: imageRect, operation: .sourceOver, fraction: 1.0)
-            NSColor(for: NSControlTint(rawValue: 0x1191FE)!).set()
-            let path = NSBezierPath()
-            path.lineWidth = 2.0
-            path.removeAllPoints()
-            path.appendRect(imageRect)
-            path.stroke()
-            
-            if SnipManager.shared.captureState == .edit {
-                
+            if SnipManager.shared.captureState == .waiting {
+                NSColor.white.set()
+                for i in 0..<8 {
+                    let path = NSBezierPath()
+                    path.removeAllPoints()
+                    path.appendOval(in: self.pointRect(index: i, inRect: imageRect))
+                    path.fill()
+                }
             }
         }
         if let toolContainer = self.toolContainer,
@@ -410,19 +432,19 @@ fileprivate class SnipView: NSView {
 //        NSEnableScreenUpdates()
     }
     
-    func setupTrackingArea(rect: NSRect) {
+    fileprivate func setupTrackingArea(rect: NSRect) {
         self.trackingArea = NSTrackingArea(rect: rect, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow], owner: self, userInfo: nil)
         self.addTrackingArea(self.trackingArea)
     }
     
-    func setupTool() {
+    fileprivate func setupTool() {
         DLog("setup Tool but not show")
         self.toolContainer = ToolContainer()
         self.toolContainer.isHidden = true
         self.addSubview(self.toolContainer)
     }
     
-    func showTool() {
+    fileprivate func showTool() {
         DLog("show Tool")
         let imageRect = NSIntersectionRect(self.drawingRect, self.bounds)
         var y = Int(imageRect.origin.y) - 28
@@ -448,6 +470,63 @@ fileprivate class SnipView: NSView {
         }
     }
     
+    override var acceptsFirstResponder: Bool {
+        return true
+    }
+    
+    private func pointRect(index: Int, inRect rect: NSRect) -> NSRect {
+        var x: CGFloat = 0.0, y: CGFloat = 0.0
+        switch index {
+        case 0:
+            x = rect.minX
+            y = rect.maxY
+        case 1:
+            x = rect.midX
+            y = rect.maxY
+        case 2:
+            x = rect.maxX
+            y = rect.maxY
+        case 3:
+            x = rect.minX
+            y = rect.midY
+        case 4:
+            x = rect.maxX
+            y = rect.midY
+        case 5:
+            x = rect.minX
+            y = rect.minY
+        case 6:
+            x = rect.midX
+            y = rect.minY
+        case 7:
+            x = rect.maxX
+            y = rect.minY
+        default:
+            break
+        }
+        return NSRect(x: x - 5, y: y - 5, width: 10, height: 10)
+    }
+}
+
+fileprivate class SnipDrawView: NSView {
+    fileprivate var snipView: SnipView!
+    fileprivate var pathView: DrawPathView!
+    
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        
+        if let image = self.snipView.image {
+            let imageRect = NSIntersectionRect(self.snipView.drawingRect, self.bounds)
+            image.draw(in: imageRect, from: imageRect, operation: .sourceOver, fraction: 1.0)
+            NSColor(calibratedWhite: 1, alpha: 0.66).set()
+            let path = NSBezierPath()
+            path.lineWidth = 2.0
+            path.removeAllPoints()
+            path.appendRect(imageRect)
+            path.stroke()
+        }
+    }
+    
     func setupDrawPath() {
         guard pathView == nil else {
             return
@@ -455,13 +534,9 @@ fileprivate class SnipView: NSView {
         DLog("setup draw path")
         self.pathView = DrawPathView()
         self.addSubview(self.pathView)
-        let rect = NSIntersectionRect(self.drawingRect, self.bounds)
+        let rect = NSIntersectionRect(self.snipView.drawingRect, self.bounds)
         self.pathView.frame = rect
         self.pathView.isHidden = false
-    }
-    
-    override var acceptsFirstResponder: Bool {
-        return true
     }
 }
 
@@ -479,7 +554,7 @@ fileprivate class DrawPathView: NSView {
         }
     }
     
-    func drawCommentInRect(rect: NSRect) {
+    fileprivate func drawCommentInRect(rect: NSRect) {
         let path = NSBezierPath(rect: rect)
         path.addClip()
         NSColor.red.set()
@@ -488,7 +563,7 @@ fileprivate class DrawPathView: NSView {
         }
     }
     
-    func drawShape(info: DrawPathInfo, inBackgroud: Bool) {
+    private func drawShape(info: DrawPathInfo, inBackgroud: Bool) {
         var rect = NSRect(x: info.startPoint.x, y: info.startPoint.y, width: info.endPoint.x - info.startPoint.x, height: info.endPoint.y - info.startPoint.y)
         if inBackgroud {
             rect = self.window!.convertFromScreen(rect)
@@ -499,7 +574,7 @@ fileprivate class DrawPathView: NSView {
             rect = rect1
         }
         let path = NSBezierPath()
-        path.lineWidth = 4
+        path.lineWidth = 3
         path.lineCapStyle = .round
         path.lineJoinStyle = .round
         

@@ -40,10 +40,10 @@ class ViewController: NSViewController {
     }
     
     func initHotKey() {
-        hotkey = HotKey(key: .escape, modifiers: [])
-        hotkey.keyDownHandler = {
-            SnipManager.shared.endCapture()
-        }
+//        hotkey = HotKey(key: .escape, modifiers: [])
+//        hotkey.keyDownHandler = {
+//            SnipManager.shared.endCapture()
+//        }
         
         captureHotkey = HotKey(key: .a, modifiers: [.command, .control])
         captureHotkey.keyDownHandler = {
